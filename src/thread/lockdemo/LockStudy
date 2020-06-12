@@ -1,0 +1,874 @@
+
+### 1.为什么需要锁（线程安全的概念）
+当多个线程同时访问一个对象时，如果不用考虑这些线程在运行时环境下
+的调度和交替执行，也不需要进行额外的同步，或者在调用方进行任何其他的协调操作，调用这个对
+象的行为都可以获得正确的结果，那就称这个对象是线程安全的
+话不多说切入正题
+### 2.锁的相关概念
+1.公平锁与非公平锁
+
+公平锁：  新进程发出请求，如果此时一个线程正持有锁，或有其他线程正在等待队列中等待这个锁，
+那么新的线程将被放入到队列中被挂起。
+相当于一堆嗜睡的低血糖病人排队看医生，进去的病人门一关，外面的人便排队候着打瞌睡，轮到他时醒醒再进去
+
+非公平锁: 新进程发出请求，如果此时一个线程正持有锁，新的线程将被放入到队列中被挂起，
+但如果发出请求的同时该锁变成可用状态，那么这个线程会跳过队列中所有的等待线程而获得锁。
+相当于排队看医生，进去的病人门一关，外面的人便排队候着打瞌睡，这时新人来了，碰巧门一开，外面的人还没完全醒来，他就乘机冲了进去。
+
+非公平锁在高并发情况下，有可能存在优先级反转和饥饿现象
+
+这里解释一下饥饿现象
+
+饥饿现象是资源在其中两个或以上线程或进程相互使用，第三方线程或进程始终得不到。想像一下三个人传球，其中两个人传来传去，第三个人始终得不到。
+
+例子：考虑一台打印机分配的例子，当有多个进程需要打印文件时，系统按照短文件优先的策略排序，
+该策略具有平均等待时间短的优点，似乎非常合理，但当短文件打印任务源源不断时，长文件的打印任务将被无限期地推迟，导致饥饿以至饿死。
+ 
+
+非公平锁性能高于公平锁性能的原因：
+
+在恢复一个被挂起的线程与该线程真正运行之间存在着严重的延迟。相当于人从被叫醒要完全醒过来需要时间。
+（非公平锁是，谁能优先工作就可以先进行工作，公平锁则不是，就是按照某种规则进行工作，必须满足此规则，可以牺牲某些性能）
+
+ReentrantLock的构造函数不传参数，默认为非公平锁
+
+也可通过ReentrantLock构造函数传入true，设置为公平锁，ReentrantLock lock = new ReentrantLock(true)
+
+2.可重入锁与不可重入锁
+
+所谓不可重入锁，即若当前线程执行某个方法已经获取了该锁，那么在方法中尝试再次获取锁时，就会获取不到被阻塞
+
+可重入锁与上述概念相反，接下来我们设计一个可重入一个不可重入
+
+具体实现:
+  不可重入锁：
+  
+      public class NoReentrantLockDemo {
+          class TestLock{
+              private volatile  boolean flag = false;
+              public synchronized void lock(){
+                  while (flag){
+                      try {
+                          wait();
+                      } catch (InterruptedException e) {
+                          e.printStackTrace();
+                      }
+                  }
+                  flag = true;
+              }
+              public synchronized void unlock(){
+                  flag = false;
+                  notify();
+              }
+          }
+          public void testOne(TestLock testLock){
+              testLock.lock();
+              testTwo(testLock);
+              testLock.unlock();
+          }
+          public void testTwo(TestLock testLock){
+              testLock.lock();
+              System.out.println("woshi 2");
+              testLock.unlock();
+          }
+          public static void main(String[] args) {
+              NoReentrantLockDemo reentrantLockDemo = new NoReentrantLockDemo();
+              NoReentrantLockDemo.TestLock testLock = reentrantLockDemo.new TestLock();
+              reentrantLockDemo.testOne(testLock);
+          }
+      
+      }
+  可重入锁：
+  
+      public class ReentrantLockDemo {
+      
+          class TestLock{
+              private volatile  boolean flag = false;
+              private Thread lockThread;
+              private  int threadCount;
+      
+              public synchronized void lock(){
+                  Thread thread = Thread.currentThread();
+                  while (flag&&lockThread!=thread){
+                      try {
+                          wait();
+                      } catch (InterruptedException e) {
+                          e.printStackTrace();
+                      }
+                  }
+                  flag = true;
+                  threadCount++;
+                  lockThread = thread;
+              }
+              public synchronized void unlock(){
+      
+                  if (Thread.currentThread() == lockThread){
+                      threadCount--;
+                      if (threadCount==0){
+                          flag = false;
+                          notify();
+                      }
+                  }
+      
+              }
+          }
+      
+          public void testOne(TestLock testLock){
+              testLock.lock();
+              testTwo(testLock);
+              testLock.unlock();
+          }
+      
+          public void testTwo(TestLock testLock){
+              testLock.lock();
+              System.out.println("woshi 2");
+              testLock.unlock();
+          }
+      
+          public static void main(String[] args) {
+              ReentrantLockDemo reentrantLockDemo = new ReentrantLockDemo();
+              ReentrantLockDemo.TestLock testLock = reentrantLockDemo.new TestLock();
+              reentrantLockDemo.testOne(testLock);
+          }
+      }
+   
+   简单总结
+   
+   可重入锁会记忆拥有锁的线程，只要是该线程就可以
+   
+   不可重入锁呢，不会记忆线程，对一个方法上锁之后，必须在调用另外一个需要锁的方法之前解锁，否则就会产生死锁
+   
+   目前我们常用的synchronize关键字与ReentrantLock都是可重入锁
+   
+   3.自旋锁
+   
+   互斥同步这种重量级锁手段，对性能最大的影响是阻塞的实现，挂起线程和恢复线程的操作都需要转入内核态中完成，这些操作给Java虚拟机的并发性能带来了很大的压力。
+   而且一些共享数据只会锁定很短的时间，为了这段时间去挂起和恢复线程并不值得。现在绝大多数的个人电脑和服务器都是多路（核）处理器系
+   统，如果物理机器有一个以上的处理器或者处理器核心，能让两个或以上的线程同时并行执行，我们就可以让后面请求锁的那个线程“稍等一会”，但不放弃处理器的执行时间，看看持有锁的线程是否很
+   快就会释放锁。为了让线程等待，我们只须让线程执行一个忙循环（自旋），这项技术就是所谓的自旋锁。
+   
+   大部分自旋锁实现的底层依赖CAS机制
+   
+   再开始编写自旋锁例子前，我们首先了解一下CAS相关概念，后面还会详细讲解一下CAS的缺点以及出现的ABA问题 
+   
+   CAS 是什么？
+   
+   比较并交换，每个线程从主内存中拷贝变量到自己的工作内存中，在自己的工作内存中完成修改要写会主内存时会比较主内存中的值与工作内存中一开始拷贝的值是否相等，相等才写会主内存
+   
+   CAS是一条CPU原语，CAS并发原语体现在Java语言中就是sun.misc.Unsafe包中，调用Unsafe类中的CAS方法，JVM会帮我们实现出CAS汇编指令，这是一种完全依赖于硬件的功能，通过它实现了原子操作。并发原语的执行必须是连续的，在执行过程中不允许被打断，也就是说CAS是一条CPU原子指令，不会造成所谓的数据不一致问题
+   
+   CAS在某些场景下相对于synchronized具有更好的效率
+   
+   CAS指令需要有三个操作数，分别是内存位置（在Java中可以简单地理解为变量的内存地址，用V
+   表示）、旧的预期值（用A表示）和准备设置的新值（用B表示）。CAS指令执行时，当且仅当V符合
+   A时，处理器才会用B更新V的值，否则它就不执行更新。但是，不管是否更新了V的值，都会返回V的
+   旧值，上述的处理过程是一个原子操作，执行期间不会被其他线程中断。
+   
+   知道了这些，我们来手写模拟一个自旋锁，更好的理解CAS与自旋锁
+   
+      public class SpinLockDemo {
+      
+          /**
+           * 自旋锁实际上就是让线程执行一个忙循环（自旋），不停的去访问查看锁是否已经被释放。
+           */
+      
+          public volatile static AtomicReference<Thread> atomicReference = new AtomicReference<>();
+      
+          public void lock(){
+      
+              System.out.println(Thread.currentThread().getName()+"尝试开始加锁");
+              Thread thread = Thread.currentThread();
+              while (!atomicReference.compareAndSet(null,thread)){//atomicReference.compareAndSet()（这个方法就是使用的CAS） 返回值为布尔类型，当另一个线程想尝试加锁时
+                                                                         //会一直执行CAS，不停的访问查看锁是否被释放
+              }
+              System.out.println(Thread.currentThread().getName()+"加锁成功");
+          }
+      
+          public void unlock(){
+      
+              Thread thread = Thread.currentThread();
+              boolean flag = atomicReference.compareAndSet(thread,null);
+              if (flag){
+                  System.out.println(Thread.currentThread().getName()+"解锁");
+              }
+          }
+      
+          public static void main(String[] args) {
+      
+              SpinLockDemo spinLockDemo = new SpinLockDemo();
+      
+              new Thread(()->{
+                  spinLockDemo.lock();
+                  try {
+                      Thread.sleep(5000);
+                  } catch (InterruptedException e) {
+                      e.printStackTrace();
+                  }
+                  spinLockDemo.unlock();
+              },"AA").start();
+      
+              try {
+                  TimeUnit.SECONDS.sleep(1);
+              } catch (InterruptedException e) {
+                  e.printStackTrace();
+              }
+      
+              new Thread(()->{
+                  spinLockDemo.lock();
+                  try {
+                      Thread.sleep(1000);
+                  } catch (InterruptedException e) {
+                      e.printStackTrace();
+                  }
+                  spinLockDemo.unlock();
+              },"BB").start();
+          }
+      }
+   ###  synchronized与lock
+   
+   #### synchronized
+   
+   synchronized是Java提供的一个并发控制的关键字。主要有两种用法，分别是同步方法和同步代码块。也就是说，synchronized既可以修饰方法也可以修饰代码块。
+   
+   1.同步代码块
+   
+   1.同步代码块中的锁对象可以使用任意的对象，但是必须保证多个线程使用的锁对象为同一个锁对象
+   
+       锁对象的作用:某个线程获得该实例的锁后，其他线程不能再得到该实例的锁从而保证某一时刻只让一个线程进行操作
+       
+           synchronized(锁对象){
+               会产生线程安全问题的代码(操作共享变量的代码部分)
+           }
+           
+   2.同步方法
+   
+       1.把访问共享变量部分的代码抽取出来放到方法中，并在方法上添加synchronized进行修饰,
+       
+       2.普通同步方法的锁对象为实现类对象即this,我们通过同一个实现类创建了多个线程，故为同一个锁对象
+       
+       3.静态同步方法的锁对象为类的Class对象
+   
+   
+   3.synchronized代码块原理分析  
+   
+       public void testTwo(){
+               synchronized (this){
+                   System.out.println("同步代码块");
+               }
+       } 
+   使用Javap -c 反编译以上代码
+   
+       public void testTwo();
+           Code:
+              0: aload_0
+              1: dup
+              2: astore_1
+              3: monitorenter                      
+              4: getstatic     #2                  
+              7: ldc           #5                  
+              9: invokevirtual #4                  
+             12: aload_1
+             13: monitorexit                       //
+             14: goto          22
+             17: astore_2
+             18: aload_1
+             19: monitorexit                       //第二次执行是确保就算是程序发生异常也要释放锁
+             20: aload_2 
+             21: athrow
+             22: return
+             
+   synchronized关键字经过Javac编译之后，会在同步块的前后分别形成
+   monitorenter和monitorexit这两个字节码指令。
+   
+   Java虚拟机规范里对monitorenter和monitorexit这两个字节码指令的介绍是（这里因为本人英文水平有限，中文翻译引用的谷歌翻译）：
+   
+       
+       monitorenter：
+       
+       Each object is associated with a monitor. A monitor is locked if and only if it has an owner. 
+       每个对象都与一个监视器关联。监视器只有在拥有所有者的情况下才被锁定。
+       
+       The thread that executes monitorenter attempts to gain ownership of the monitor associated with objectref, as follows:
+       执行monitorenter的线程尝试获得与objectref关联的监视器的所有权，如下所示：
+       
+       If the entry count of the monitor associated with objectref is zero, 
+       the thread enters the monitor and sets its entry count to one. The thread is then the owner of the monitor.
+       如果与objectref关联的监视器的条目计数为零，则线程进入监视器并将其条目计数设置为1。然后，该线程是监视器的所有者。
+       
+       If the thread already owns the monitor associated with objectref, it reenters the monitor, incrementing its entry count.
+       如果线程已经拥有与objectref关联的监视器，则它将重新进入监视器，从而增加其条目计数。
+       
+       If another thread already owns the monitor associated with objectref, the thread blocks until the monitor’s entry count is zero, then tries again to gain ownership.
+       如果另一个线程已经拥有与objectref关联的监视器，则该线程将阻塞，直到该监视器的条目计数为零为止，然后再次尝试获取所有权。
+   
+       monitorexit：
+       
+       The thread that executes monitorexit must be the owner of the monitor associated with the instance referenced by objectref.
+       执行monitorexit的线程必须是与objectref引用的实例相关联的监视器的所有者。
+       
+       The thread decrements the entry count of the monitor associated with objectref. 
+       If as a result the value of the entry count is zero, the thread exits the monitor and is no longer its owner.
+       Other threads that are blocking to enter the monitor are allowed to attempt to do so.
+      该线程减少与objectref关联的监视器的条目计数。
+      结果，如果条目计数的值为零，则线程退出监视器，并且不再是其所有者。其他被阻止进入监视器的线程也可以尝试这样做。
+      
+   4.synchronized方法原理分析 
+   
+       public void testTwo(){
+               synchronized (this){
+                   System.out.println("同步代码块");
+               }
+        }
+        
+   使用Javap -verbose进行反编译
+   
+        public synchronized void testOne();
+            descriptor: ()V
+            flags: ACC_PUBLIC, ACC_SYNCHRONIZED //这里的ACC_SYNCHRONIZED标志
+            Code:
+              stack=2, locals=1, args_size=1
+                 0: getstatic     #2                  // Field java/lang/System.out:Ljava/io/PrintStream;
+                 3: ldc           #3                  // String "同步方法"
+                 5: invokevirtual #4                  // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+                 8: return
+              LineNumberTable:
+                line 6: 0
+                line 7: 8
+              LocalVariableTable:
+                Start  Length  Slot  Name   Signature
+                    0       9     0  this   Lthread/lockDemo/SynchronizedDemo;
+   
+   方法级的同步是隐式的。同步方法的常量池中会有一个ACC_SYNCHRONIZED标志。当某个线程要访问某个方法的时候，会检查是否有ACC_SYNCHRONIZED，如果有设置，
+   则需要先获得monitor，然后开始执行方法，方法执行之后再释放monitor。这时如果其他线程来请求执行方法，
+   会因为无法获得monitor而被中断住。直到的是，如果在方法执行过程中，发生了异常，并且方法内部并没有处理该异常，那么在异常被丢弃到方法之前，monitor会被自动释放。 
+   
+   5.JDK1.6之后对于synchronized关键字的优化
+   
+   首先，锁变成了一个逐步升级的过程，不会一开始上来就重量级锁。（其实增加了一个锁的膨胀，实在不行再出动重量级锁）
+   锁一般只会升级不会降级，避免降级之后冲突导致效率不行并且又得升级。但是降级其实是允许的(STW的时候)
+   
+   锁的膨胀
+   （本知识点只是简单的结合自己的理解进行了一下介绍。当中很多具体细节，请观看这篇CSDN博客（我觉得讲的非常好！），原文链接：https://blog.csdn.net/lengxiao1993/article/details/81568130）
+   （本节知识点有些地方一边看着Mark Word的图，一边学习最好，但是因为IDEA不支持放图片，可以查看博客：）
+   JVM设置了三种锁机制
+   
+   偏向锁
+   
+   轻量级锁
+   
+   重量级锁
+   
+   上述这三种机制的切换是根据竞争激烈程度进行的， 
+   在几乎无竞争的条件下， 会使用偏向锁， 
+   在轻度竞争的条件下， 会由偏向锁升级为轻量级锁， 
+   在重度竞争的情况下， 会升级到重量级锁。
+   
+   下面我们来具体分析一下相关膨胀过程
+   
+   无锁 -> 偏向锁
+   
+   首先读取对象头当中的Mark Word部分，查看是否允许可偏向
+   
+   如果允许可偏向，则尝试用CAS往对象头中Mar kDown当中锁状态偏向锁位置，更新线程ID
+   如果 CAS 操作成功， 则认为已经获取到该对象的偏向锁， 执行同步块代码 。
+   
+   补充： 一个线程在执行完同步代码块以后， 并不会尝试将 MarkWord 中的 thread ID 赋回原值 。
+   这样做的好处是： 如果该线程需要再次对这个对象加锁，而这个对象之前一直没有被其他线程尝试获取过锁，依旧停留在可偏向的状态下， 即可在不修改对象头的情况下， 
+   直接认为偏向成功。
+   
+   如果 CAS 操作失败， 则说明， 有另外一个线程 Thread B 抢先获取了偏向锁。 这种状态说明该对象的竞争比较激烈， 
+   此时需要撤销 Thread B 获得的偏向锁，将 Thread B 持有的锁升级为轻量级锁。 
+   该操作需要等待全局安全点 JVM safepoint ( 此时间点， 没有线程在执行字节码) 。
+   
+   中间补充的知识表明，需要升级时，偏向锁的撤销并不是说恢复到之前的无锁可偏向的状态，如果需要升级，直接更新Mark Word的轻量级锁标志位，将栈帧lock record（请看底下说明）的指针直接更新到相应位置
+   
+   偏向锁 -> 轻量级锁
+   
+  （上述第一种情况执行底下步骤① ②。第二种直接执行底下步骤②）
+   ① 首先根据标志位判断出对象状态处于不可偏向的无锁状态
+   
+   ② 在当前线程的栈桢（Stack Frame）中创建用于存储锁记录（lock record）的空间，并将对象头中的Mark Word复制到锁记录中，官方称为Displaced Mark Word。
+   然后线程尝试使用 CAS 操作将对象头中的 Mark Word 替换为指向锁记录的指针。
+       如果成功，当前线程获得锁
+       如果失败，表示该对象已经被加锁了， 先进行自旋操作， 再次尝试 CAS 争抢， 如果仍未争抢到， 则进一步升级锁至重量级锁。
+   轻量级锁解锁：
+       如果对象的Mark Word仍然指向线程的锁记录，那就用CAS操作把对象当前的Mark Word和线程中复制的Displaced
+       Mark Word替换回来。假如能够成功替换，那整个同步过程就顺利完成了；如果替换失败，则说明有
+       其他线程尝试过获取该锁，就要在释放锁的同时，唤醒被挂起的线程。
+       
+   这里结合上述知识额外说明一下，
+   
+   偏向锁不会直接升级到轻量级锁而是有两种情况
+   
+   偏向锁升级到轻量级锁会有两种请看(因为不是撤销偏向锁，而是直接更新轻量级锁所需标志)
+      
+  ① 偏向锁线程代码块执行完毕，进行锁的升级，处于不可偏向的无锁状态
+  
+  ② 偏向锁线程代码块尚未执行完毕，进行锁的升级，
+      我个人认为是，在执行完毕当前代码块之前先偏向于当前线程（偏向锁仍然有效），但是在运行过程中会标记一下这个线程后续是一个轻量级锁，
+      等待当前代码块代码执行完，后续直接执行轻量级锁加锁过程
+       
+   轻量级锁 -> 重量级锁
+  
+   修改Mark Word 重量级锁标志位为10，并且创建一个与对象相关联的monitor对象（monitor可以与对象一起创建销毁或当线程试图获取对象锁时自动生成），
+   然后将monitor的指针到MarkWord上，当一个 monitor 被某个线程持有后，它便处于锁定状态。
+   这个重量级锁是可重入的，拥有锁的线程重新进入一次就将monitor内的计数器+1
+     
+   还有就是锁粗化与锁消除
+   
+        锁消除：
+        
+        锁消除是指虚拟机即时编译器在运行时，对一些代码要求同步，但是对被检测到不可能存在共享
+        数据竞争的锁进行消除。锁消除的主要判定依据来源于逃逸分析的数据支持，
+        如果判断到一段代码中，在堆上的所有数据都不会逃逸出去被其他线程访问到，那就可
+        以把它们当作栈上数据对待，认为它们是线程私有的，同步加锁自然就无须再进行。
+   
+   
+       锁粗化：
+       
+       原则上，我们在编写代码的时候，总是推荐将同步块的作用范围限制得尽量小——只在共享数据
+       的实际作用域中才进行同步，这样是为了使得需要同步的操作数量尽可能变少，即使存在锁竞争，等
+       待锁的线程也能尽可能快地拿到锁。
+       
+   #### Lock
+   
+   Lock所属java.util.concurrent包下，就是Java专门应对多线程出的工具包
+   
+   Lock是一个接口，常见实现类，ReentrantLock，ReentrantReadWriteLock等
+   
+   Lock锁在程序运行期间抛出异常时并不会释放锁，所以需要把释放锁的操作放在finally{}代码块中
+   
+   1.ReentrantLock
+   
+   ReentrantLock可设置公平锁与不公平锁，默认不公平锁，在刚开始的时候我们已经介绍过这两种锁，这里就不再多说，直接演示公平锁
+   
+       public class FairLockDemo {
+       
+           /**
+            * 此场景模拟要素
+            * 线程内多次使用共同资源（要点：1.不可一直占用，2.需要断断续续的进行使用，然后声明多个线程模拟线程抢夺），模拟两个线程相互抢夺资源，观察结果
+            */
+           public ReentrantLock reentrantLock = new ReentrantLock(true);//这里构造方法参数修改为false或者不写。则为不公平锁
+       
+           public void testOne(){
+               for(int i=0;i<100;i++){//执行100次加锁解锁过程，这样就使用了多次资源，而且不是一直占用
+                   try{
+                       reentrantLock.lock();
+                       System.out.println(Thread.currentThread().getName()+"................."+i);
+                   }catch(Exception e){
+                       e.printStackTrace();
+                   }finally{
+                       reentrantLock.unlock();
+                   }
+               }
+           }
+           public static void main(String[] args) {
+               FairLockDemo fairLockDemo = new FairLockDemo();
+               new Thread(()->{
+                   fairLockDemo.testOne();
+               },"AA").start();
+               new Thread(()->{
+                   fairLockDemo.testOne();
+               },"BB").start();
+           }
+       }
+       
+   2.tryLock
+   
+   ReentrantLock.lock();
+   ReentrantLock.tryLock();
+   
+   这两个方法的区别：tryLock()是有返回值的，lock()没有返回值。
+   
+   tryLock()是有返回值的，表示尝试获取锁，如果获取成功返回true，没有获得则为false
+   
+   tryLock(long time, TimeUnit unit)方法和tryLock()方法是类似的，
+   只不过区别在于这个方法在拿不到锁时会等待一定的时间，在时间期限之内如果还拿不到锁，就返回false。如果如果一开始拿到锁或者在等待期间内拿到了锁，则返回true。
+   
+     测试：
+     
+     public class TryLockDemo {
+     
+         public ReentrantLock reentrantLock = new ReentrantLock();
+     
+         public void testOne(){
+             if (reentrantLock.tryLock()){
+                 try{
+                     try {
+                         Thread.sleep(6000);
+                     } catch (InterruptedException e) {
+                         e.printStackTrace();
+                     }
+                     System.out.println("我的线程名是"+Thread.currentThread().getName());
+                 }finally {
+                     reentrantLock.unlock();
+                 }
+             }
+         }
+         public void testTwo(){
+             boolean flag = false;
+             try {
+                 if (reentrantLock.tryLock(5, TimeUnit.SECONDS)){
+                         flag = true;
+                         System.out.println("我的线程名是"+Thread.currentThread().getName());
+                 }else {
+                     System.out.println("我等了5秒你还没执行完");
+                 }
+             } catch (InterruptedException e) {
+                 e.printStackTrace();
+             }finally {
+                 if (flag){
+                     reentrantLock.unlock();
+                 }
+             }
+         }
+         public static void main(String[] args) {
+     
+             TryLockDemo tryLockDemo = new TryLockDemo();
+     
+             new Thread(()->{
+                 System.out.println("线程A开始执行");
+                 tryLockDemo.testOne();
+             },"AA").start();
+             new Thread(()->{
+                 System.out.println("线程B开始执行");
+                 tryLockDemo.testOne();
+             },"BB").start();
+             new Thread(()->{
+                 System.out.println("线程C开始执行");
+                 tryLockDemo.testTwo();
+             },"CC").start();
+             try {
+                 Thread.sleep(10000);
+             } catch (InterruptedException e) {
+                 e.printStackTrace();
+             }
+         }
+     }
+     
+   3.lockInterruptibly
+   
+   使用lockInterruptibly()去获得锁，是可以被中断的
+   
+   结合场景分析，
+   
+   有两个锁，A，B
+   
+   有两个线程1,2
+   
+   线程1，需要先获得A锁，再获得B锁才可继续前行
+   
+   线程2，需要先获得B锁，再获得A锁才可继续前行
+   
+   线程1 线程2 同时启动
+   
+   这个时候就会发生死锁，线程1等待线程2释放锁，线程2等待线程1释放锁，
+   
+   如果线程2获得锁的方式采用lockInterruptibly()方式，我们就可以打断线程2
+   
+   ReentrantLock.lockInterruptibly允许在等待时由其它线程调用等待线程的Thread.interrupt方法来中断等待线程的等待而直接返回，这时不用获取锁，而会抛出一个InterruptedException。 
+   ReentrantLock.lock方法不允许Thread.interrupt中断,即使检测到Thread.isInterrupted,一样会继续尝试获取锁，失败则继续休眠。只是在最后获取锁成功后再把当前线程置为interrupted状态,然后再中断线程。
+   
+       实例：
+       
+       public class LockinterruptiblyDemo {
+       
+           public ReentrantLock reentrantLock = new ReentrantLock();
+           private volatile boolean flag = true;
+       
+           public void testOne(){
+               if (reentrantLock.tryLock()){
+       
+                   if (flag){
+                       flag = false;
+                   }else {
+                       flag = true;
+                   }//这里是为了判断线程2是否需要解锁，线程1执行完，flag为false，线程2如果得到锁进行执行则，flag为true
+       
+                   try{
+                       try {
+                           Thread.sleep(5000);
+                       } catch (InterruptedException e) {
+                           e.printStackTrace();
+                       }
+                       System.out.println("我的线程名是"+Thread.currentThread().getName());
+                   }finally {
+                       reentrantLock.unlock();
+                   }
+               }
+           }
+           public void testTwo(){
+               try {
+                   reentrantLock.lockInterruptibly();
+               } catch (InterruptedException e) {
+                   e.printStackTrace();
+               } finally {
+                   if (flag){
+                       reentrantLock.unlock();
+                   }
+               }
+           }
+           public static void main(String[] args) {
+       
+               LockinterruptiblyDemo lockinterruptiblyDemo = new LockinterruptiblyDemo();
+       
+               new Thread(()->{
+                   System.out.println("线程B开始执行");
+                   lockinterruptiblyDemo.testOne();
+               },"BB").start();
+               try {
+                   Thread.sleep(2000);
+               } catch (InterruptedException e) {
+                   e.printStackTrace();
+               }
+              Thread thread = new Thread(()->{
+                   System.out.println("线程C开始执行");
+                   lockinterruptiblyDemo.testTwo();
+               },"CC");
+       
+               thread.start();
+       
+               thread.interrupt();
+           }
+       
+       }
+   
+   4.ReentrantReadWriteLock
+    
+   ReentrantReadWriteLock是AQS的一种实现，分为读锁（共享锁）和写锁（排他锁，独占锁）
+   
+   
+       实例：
+       
+       public class ReentrantReadWriteLockDemo {
+       
+           public ReentrantReadWriteLock reentrantReadWriteLock = new ReentrantReadWriteLock();
+           public ReentrantReadWriteLock.ReadLock readLock = reentrantReadWriteLock.readLock();
+           public ReentrantReadWriteLock.WriteLock writeLock = reentrantReadWriteLock.writeLock();
+       
+           public void readData(){
+               try{
+                   readLock.lock();
+                   System.out.println(Thread.currentThread().getName()+"我获得了锁");
+                   Thread.sleep(5000);
+                   System.out.println(Thread.currentThread().getName()+"我读完数据了了");
+               } catch (InterruptedException e) {
+                   e.printStackTrace();
+               } finally {
+                   readLock.unlock();
+               }
+       
+           }
+           public void writeData(){
+               try{
+                   writeLock.lock();
+                   System.out.println(Thread.currentThread().getName()+"我获得了锁");
+                   Thread.sleep(3000);
+                   System.out.println(Thread.currentThread().getName()+"我写完数据了了");
+               } catch (InterruptedException e) {
+                   e.printStackTrace();
+               } finally {
+                   writeLock.unlock();
+               }
+           }
+           public static void main(String[] args) {
+       
+               ReentrantReadWriteLockDemo reentrantReadWriteLockDemo = new ReentrantReadWriteLockDemo();
+       
+       
+       
+               new Thread(()->{
+                   reentrantReadWriteLockDemo.readData();
+               },"读锁1").start();
+       
+               new Thread(()->{
+                   reentrantReadWriteLockDemo.writeData();
+               },"写锁").start();
+               new Thread(()->{
+                   reentrantReadWriteLockDemo.readData();
+               },"读锁2").start();
+       
+               try {
+                   Thread.sleep(5000);
+               } catch (InterruptedException e) {
+                   e.printStackTrace();
+               }
+           }
+       }
+       
+   经过上述例子，都是读的时候不阻塞，有写的时候，读写都阻塞。但是当读锁后边紧跟写锁时，先等待读锁释放，然后增加一个写锁，写锁时全都堵塞
+   
+   5.condition(线程间通信)
+   
+   Condition中的await()方法相当于Object的wait()方法
+   
+   Condition中的signal()方法相当于Object的notify()方法
+   
+   Condition中的signalAll()相当于Object的notifyAll()方法。
+   
+   不同的是，Object中的这些方法是和同步锁捆绑使用的，而Condition是需要与互斥锁/共享锁捆绑使用的。
+   
+   Condition能够更加精细的控制多线程的休眠与唤醒。对于同一个锁，我们可以创建多个Condition，在不同的情况下使用不同的Condition。
+   
+   最经典的案例是使用线程完成简单的消费者生产者（这里额外拓展一下消费者生产者实现方式）
+   
+   如下
+    
+    
+
+   
+   6.synchronized与Lock的区别
+   
+   synchronized是Java中的关键字，属于JVM层面，而Lock是具体类，属于API层面
+   
+   synchronized不需要用户手动释放锁，当线程执行完毕或者抛出异常时会自动释放锁，Lock需要手动释放锁
+   
+   synchronized是不可以中断的，直到运行结束或者抛出异常，Lock通过lockInterruptibly()去申请锁可以被打断
+   
+   synchronized为非公平锁，Lock默认为非公平锁
+   
+   synchronized的notify()方法为随机唤醒，lock+condition可以指定唤醒那些线程
+   
+   
+   #### CAS 
+   
+   关于CAS上边已经介绍过了，在这里我们讲一下，CAS缺点与CAS常见ABA问题以及解决方案
+   
+   cas优点：如一描述在并发量不是很高时cas机制会提高效率。
+   cas缺点：
+   1、cpu开销大，在高并发下，许多线程，更新一变量，多次更新不成功，循环反复，给cpu带来大量压力。
+   2、只是一个变量的原子性操作，不能保证代码块的原子性。
+   3、ABA问题
+   
+   ABA 问题：
+   
+   内存值V=100;
+   threadA 将100，改为50；
+   threadB 将100，改为50；
+   threadC 将50，改为100；
+   
+   对于ABA解决方案可以使用AtomicStampedReference来进行解决
+   
+   
+       情景再现ABA问题：
+       
+       public class ABADemo {
+       
+           public static AtomicInteger atomicInteger = new AtomicInteger(100);
+       
+           public static void main(String[] args) {
+       
+               new Thread(()->{
+                 boolean flag = atomicInteger.compareAndSet(100,90);
+                   System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flag);
+               }).start();
+               new Thread(()->{
+                   boolean flag = atomicInteger.compareAndSet(90,100);
+                   System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flag);
+               }).start();
+               new Thread(()->{
+                   boolean flag = atomicInteger.compareAndSet(100,90);
+                   System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flag);
+               }).start();
+           }
+       }
+   
+   
+       首先对AtomicStampedReference各种方法进行解析
+       
+           //构造方法, 传入引用和戳
+           public AtomicStampedReference(V initialRef, int initialStamp)
+           //返回引用
+           public V getReference()
+           //返回版本戳
+           public int getStamp()
+           //如果 expectedReference 等于 构造函数里传入的initialRef，并且当 expectedStamp 等于 构造函数里传入的 initialStamp
+           //那就会更新新的引用与版本戳 
+           public boolean compareAndSet(V   expectedReference,
+                                            V   newReference,
+                                            int expectedStamp,
+                                            int newStamp)
+           //如果 expectedReference 等于 构造函数里传入的 initialRef, 将更新新的版本戳到内存
+           public boolean attemptStamp(V expectedReference, int newStamp)
+           //设置当前引用的新引用和版本戳
+           public void set(V newReference, int newStamp) 
+       
+    解决演示问题：
+    
+    public class AtomicStampedReferenceDemo {
+    
+        public static AtomicStampedReference atomicStampedReference = new AtomicStampedReference(100,1);
+        
+        public static void main(String[] args) {
+    
+            new Thread(()->{
+                boolean flag = atomicStampedReference.compareAndSet(100,101,1, 2);
+                boolean flagOne = atomicStampedReference.compareAndSet(101,100,2, 3);
+                System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flag);
+                System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flagOne);
+            }).start();
+            new Thread(()->{
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                int stamp = atomicStampedReference.getStamp();
+                boolean flag = atomicStampedReference.compareAndSet(100,101,1, 2);
+                System.out.println(Thread.currentThread().getName()+"我成功了吗"+"...."+ flag);
+            }).start();
+        }
+    
+    }
+
+   
+   
+   
+   
+   
+   
+   
+
+   
+   
+   
+   
+   
+   
+   
+   
+
+   
+   
+   
+    
+
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+       
+   
+
+   
+   
+
+   
+   
+   
+   
+
+ 
+    
+
+
+

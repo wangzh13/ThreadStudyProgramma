@@ -1,0 +1,212 @@
+## volatile关键字相关知识
+### 1.volatile是什么？
+volatile是Java提供的一种轻量级的同步机制，在并发编程中，它也扮演着比较重要的角色。
+同synchronized相比（synchronized通常称为重量级锁），volatile更轻量级，
+相比使用synchronized所带来的庞大开销，倘若能恰当的合理的使用volatile，自然是美事一桩。
+
+### 2.JMM
+在学习volatile后续知识前，首先进行学习JMM知识
+
+JMM(Java内存模型Java Memory Model,简称JMM)本身是一种抽象的概念 并不真实存在,
+它描述的是一组规则或规范通过规范定制了程序中各个变量(包括实例字段,静态字段和构成数组对象的元素)的访问方式.
+JMM关于同步规定:
+1.线程解锁前,必须把共享变量的值刷新回主内存
+2.线程加锁前,必须读取主内存的最新值到自己的工作内存
+3.加锁解锁是同一把锁
+ 
+由于JVM运行程序的实体是线程,而每个线程创建时JVM都会为其创建一个工作内存(有些地方成为栈空间),工作内存是每个线程的 私有 数据区域,而Java内存模型中规定所有变量都存储在主内存,主内存是共享内存区域,
+所有线程都可访问,但线程对变量的操作(读取赋值等)必须在工作内存中进行,首先要将变量从主内存拷贝到自己的工作空间,然后对变量进行操作,操作完成再将变量写回主内存,
+不能直接操作主内存中的变量,各个线程中的工作内存储存着主内存中的变量副本拷贝,因此不同的线程无法访问对方的工作内存,此案成间的通讯(传值) 必须通过主内存来完成。
+### 3.特点
+1.可见性
+
+情景复现：
+
+    public class JMMRefresh {
+        public static boolean flag = true;
+        public static void main(String[] args) throws InterruptedException {
+            new Thread(()->{
+                System.out.println("我进到A了");
+                while (flag){
+                    System.out.println("A");
+                }
+                System.out.println("结束啦");
+            }).start();
+            Thread.sleep(10000);
+            new Thread(()->{
+                System.out.println("我进到B了");
+                flag = false;
+                System.out.println("我出B了");
+            }).start();
+        }
+    }
+    
+造成这种情况的原因如上所说：首先要将变量从主内存拷贝到自己的工作空间,然后对变量进行操作,操作完成再将变量写回主内存,
+不能直接操作主内存中的变量,各个线程中的工作内存储存着主内存中的变量副本拷贝,因此不同的线程无法访问对方的工作内存,此案成间的通讯(传值) 必须通过主内存来完成。
+
+在上述情景中，第一个线程正在运行当中（因为flag初始值为true，而且线程2的改变，线程1不知道，所以线程1的变量不会改变，会一直重复执行），
+注：线程1启动后一直执行循环，处于正在运行状态。之后线程2修改变量，刷新到主内存后，线程1不会及时的去访问主内存进行更新变量。
+
+自现需注意：线程1调用start（）后，不要立即启动线程2，先让主线程睡眠一会，让线程1启动起来
+
+>      volatile关键字解决原理
+>
+>      可以在相关变量上增加volatile关键字，
+>      被volatile关键字修饰的变量，被修改后会立即回写到主内存，并且主内存会通知其他储存相关变量副本拷贝的工作内存，此变量已经失效，
+>      下次使用前需从主内存进行更新
+
+2.有序性
+
+在计算机执行指令的顺序在经过程序编译器编译之后形成的指令序列，一般而言，这个指令序列是会输出确定的结果；
+以确保每一次的执行都有确定的结果。但是，一般情况下，CPU和编译器为了提升程序执行的效率，会按照一定的规则允许进行指令优化。
+
+我的理解是，在计算机执行指令的时候，当上一条指令与下一条指令并没有什么强制逻辑关系时（计算机认为没有关联，但是这些指令实际上是有关联的），计算机就会为了提高性能，根据实际情况
+去重新排列指令。这就是指令重排
+禁止指令重排
+    
+情景重现：
+
+    public class 指令重排序 {
+        static int x = 0, y = 0;
+        static int a = 0, b = 0;
+    
+        public static void main(String[] args) throws InterruptedException {
+    
+            while (true) {
+                reSort();
+            }
+    
+        }
+        static void reSort() throws InterruptedException {
+            Thread a = new Thread(new Runnable() {
+                public void run() {
+                    a = 1; //操作1
+                    x = b; //操作2
+                }
+            });
+            Thread b= new Thread(new Runnable() {
+                public void run() {
+                    b = 1; //操作3
+                    y = a;  //操作4
+                }
+            });
+            a.start();
+            b.start();
+            a.join();
+            b.join();
+            if (x == 0 && y == 0) {
+                System.out.println("(" + x + "," + y + ")");
+            }
+            x = 0;
+            y = 0;
+            a = 0;
+            b = 0;
+        }
+    }
+    
+ 除上述场景之外还有就是单例模式相关的doubleCheck模式，这个可以查看后续volatileDemo包下SingletonPatternOne、SingletonPatternTwo、SingletonPatternThree、SingletonPatternFour类，讲解单例模式
+
+
+3.不保证原子性
+
+情景重现：
+
+    public class AtomicDemo {
+    
+        public volatile static Integer testCount = 0;
+        
+        public  void addGo(){
+            for (int i = 0; i < 10000; i++) {
+                testCount++;
+            }
+        }
+    
+        public static void main(String[] args) throws InterruptedException {
+    
+            AtomicDemo atomicDemo = new AtomicDemo();
+    
+            new Thread(()->{
+                atomicDemo.addGo();
+            }).start();
+    
+            new Thread(()->{
+                atomicDemo.addGo();
+            }).start();
+    
+            Thread.sleep(10000);
+    
+            System.out.println(testCount);
+        }
+    }
+    
+ 出现这种情况的原因主要是  testCount++; 这条语句，分三个步骤进行
+ （可以观看后边讲解 testCount++ 这句代码在JVM当中具体是怎么执行的知识，同时学习一下相关字节码指令的知识，了解详细相关指令操作）
+ 类似这三步进行，如下
+ 
+     int i = testCount //操作1
+     
+     i = i+1 //操作2
+     
+     testCount = i //操作3
+     
+  出现上述情况的缘由（举例说明）是，刚开始线程1占用cpu资源，当testCount = 8887 时 线程1执行完毕操作2（testCount = 8888），正准备回写时，
+  线程2抢夺cpu资源成功，线程1 停滞，线程2又从开始执行，从 testCount = 8887 开始执行，等执行到 testCount = 9700时，线程1开始执行， 回写刚刚的 8888 
+  这时线程2刚刚做的工作全部无用功。
+ 
+ 解决办法
+ 
+ volatile不保证原子性，最简单的解决办法是添加synchronized
+ 
+ 使用Java.util.concurrent包下的AtomicInteger(AtomicInteger底层使用CAS实现，CAS是什么，会在后面进行分析)
+
+ 
+ ### 4.额外讲解一下JVM字节码指令
+ 
+     public class AtomicDemo {
+     
+         public int testCount = 0;
+     
+         public  void addGo(){
+             int i = testCount++;
+             System.out.println(i);
+         }
+    }
+ 
+ 使用javap -c 反编译上述类当中的addGo()方法可以得到
+ 
+      public void addGo();
+         Code:
+            0: aload_0           // 因为此方法是实例方法，开始将this指针压入操作栈（具体为何请看底下知识点）
+            1: dup               // 复制栈顶数值并将复制值压入栈顶（个人理解是 因为底下访问成员变量时需要消耗this指针（出栈操作），所以这里复制一个进行使用）
+            2: getfield          //  访问成员变量               
+            5: dup_x1            //  复制栈顶数值并将两个复制值压入栈顶（个人理解，复制了两个成员变量，目前栈中元素：0.this指针，1.成员变量，2.成员变量）
+            6: iconst_1          //  将 int 型 1 推送至栈顶（个人理解，目前栈中元素，0.this指针，1.1，2.成员变量,3.成员变量）
+            7: iadd             //    取出前两个元素进行相加（成员变量，常量1）
+            第7步执行完毕后，个人理解目前栈中元素，0.this指针，1.成员变量（0）
+            8: putfield          //   为指定类的实例字段赋值                  
+           11: istore_1          //  取出栈中第一个元素。赋予局部变量表 所以最后 i还是 0
+           12: getstatic        //   
+           15: iload_1          // 取出局部变量 i 
+           16: invokevirtual     //     Method java/io/PrintStream.println:(I)V  打印
+           19: return           // 
+           
+>     这里额外记忆一个知识点
+>     关于每个方法的栈帧当中的局部变量表
+>     如果执行的是实例方法（没有被static修饰的方法），那局部变量表中第0位索引（aload_0字节码指令）
+>     的变量槽默认是用于传递方法所属对象实例的引用，在方法中可以通过关键字“this”来访问到这个隐
+>     含的参数。其余参数则按照参数表顺序排列，占用从1开始的局部变量槽，参数表分配完毕后，再根据
+>     方法体内部定义的变量顺序和作用域分配其余的变量槽。
+
+这里额外记忆一下字节码指令相关操作
+
+iconst：当int取值-1~5时，JVM采用iconst指令将常量压入栈中。
+
+指令中第一个字母代表类型，a 代表引用类型， i代表int...等
+指令后，如
+
+const 常量入栈
+
+stroe 栈顶数值，出栈，保存到局部变量表
+
+load 局部变量值，入栈
+

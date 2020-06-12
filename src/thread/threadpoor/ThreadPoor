@@ -1,0 +1,183 @@
+## 线程池
+
+#### 阻塞队列
+
+1是什么
+
+ 阻塞队列（BlockingQueue）是一个支持两个附加操作的队列。这两个附加的操作是：在队列为空时，获取元素的线程会等待队列变为非空。当队列满时，存储元素的线程会等待队列可用。阻塞队列常用于生产者和消费者的场景，生产者是往队列里添加元素的线程，消费者是从队列里拿元素的线程。阻塞队列就是生产者存放元素的容器，而消费者也只从容器里拿元素。
+ 
+2.阻塞队列的成员
+
+队列	     &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;    有界性	         &emsp;&emsp;&emsp;&emsp;&emsp; &emsp;&emsp;&emsp;            锁	    &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;         数据结构
+
+ArrayBlockingQueue    &emsp;&emsp;&emsp;&emsp;&emsp;                                 bounded(有界)	     &emsp;&emsp;&emsp;&emsp;            加锁	  &ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&emsp;&ensp;          arrayList
+
+LinkedBlockingQueue	  &emsp;&emsp;&emsp;&emsp;                                     optionally-bounded      &ensp;&ensp;&emsp;       加锁          	  &emsp;&emsp; &emsp;&emsp;&emsp;&emsp;&emsp;&emsp; linkedList
+
+PriorityBlockingQueue &emsp;&emsp;&emsp;&emsp;	                                        unbounded           &ensp;&ensp;&ensp;&emsp;&emsp;&emsp;&emsp;           加锁        &emsp;&emsp;    &emsp;&emsp;&emsp;&emsp; &emsp;&ensp;    heap
+ 
+DelayQueue	       &emsp;&emsp;&emsp;&emsp;&emsp;        &emsp;&emsp;&emsp;            unbounded	        &ensp;&ensp;&ensp;&emsp;&emsp;&emsp;&emsp;             加锁	    &emsp;&emsp;&emsp;&emsp;   &emsp;&emsp;&emsp;&ensp;&ensp;        heap
+
+SynchronousQueue      &emsp;&emsp;&emsp;&emsp;&emsp;                                     bounded	            &ensp; &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;        加锁	         &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&ensp;&ensp;&ensp;&ensp;&ensp;       无
+
+LinkedTransferQueue  &emsp;&emsp;&emsp;&emsp;                                            unbounded	       &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;              加锁	        &emsp;&emsp;&emsp;&emsp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;       heap
+
+LinkedBlockingDeque   &emsp;&emsp;&emsp;&emsp;                                           unbounded	           &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;           无锁	          &emsp;&emsp;&emsp;&emsp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;     heap
+
+
+相关成员的简单介绍：
+
+ArrayBlockingQueue：是一个用数组实现的有界阻塞队列，此队列按照先进先出（FIFO）的原则对元素进行排序。支持公平锁和非公平锁。【注：每一个线程在获取锁的时候可能都会排队等待，如果在等待时间上，先获取锁的线程的请求一定先被满足，那么这个锁就是公平的。反之，这个锁就是不公平的。公平的获取锁，也就是当前等待时间最长的线程先获取锁】
+
+LinkedBlockingQueue：一个由链表结构组成的有界队列，此队列的长度为Integer.MAX_VALUE。此队列按照先进先出的顺序进行排序。
+
+PriorityBlockingQueue： 一个支持线程优先级排序的无界队列，默认自然序进行排序，也可以自定义实现compareTo()方法来指定元素排序规则，不能保证同优先级元素的顺序。
+
+DelayQueue： 一个实现PriorityBlockingQueue实现延迟获取的无界队列，在创建元素时，可以指定多久才能从队列中获取当前元素。只有延时期满后才能从队列中获取元素。（DelayQueue可以运用在以下应用场景：1.缓存系统的设计：可以用DelayQueue保存缓存元素的有效期，使用一个线程循环查询DelayQueue，一旦能从DelayQueue中获取元素时，表示缓存有效期到了。2.定时任务调度。使用DelayQueue保存当天将会执行的任务和执行时间，一旦从DelayQueue中获取到任务就开始执行，从比如TimerQueue就是使用DelayQueue实现的。）
+
+SynchronousQueue： 一个不存储元素的阻塞队列，每一个put操作必须等待take操作，否则不能添加元素。支持公平锁和非公平锁。SynchronousQueue的一个使用场景是在线程池里。Executors.newCachedThreadPool()就使用了SynchronousQueue，这个线程池根据需要（新任务到来时）创建新的线程，如果有空闲线程则会重复使用，线程空闲了60秒后会被回收。
+
+LinkedTransferQueue： 一个由链表结构组成的无界阻塞队列，相当于其它队列，LinkedTransferQueue队列多了transfer和tryTransfer方法。
+
+LinkedBlockingDeque： 一个由链表结构组成的双向阻塞队列。队列头部和尾部都可以添加和移除元素，多线程并发时，可以将锁的竞争最多降到一半。
+ 
+ 
+ 3.使用方法
+ 
+ 方法\处理方式	&emsp;&emsp;&emsp;   抛出异常	&emsp;&emsp;&emsp;&emsp;&emsp;  返回特殊值	&emsp;&emsp;&emsp;   一直阻塞	&emsp;&emsp;&emsp;&emsp;&emsp;   超时退出
+ 
+ 插入方法 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;	add(e)	&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;   offer(e) &emsp;&emsp;&emsp;&emsp;&emsp;	put(e) &emsp;&emsp;&emsp;&emsp;&emsp;	offer(e,time,unit)
+ 
+ 移除方法 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;	remove()  &emsp;&emsp;&emsp;&emsp;&emsp; 	poll() &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;	take() &emsp;&emsp;&emsp;&emsp;&emsp;	poll(time,unit)
+ 
+ 检查方法 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;	element() &emsp;&emsp;&emsp;&emsp;&emsp;	peek() &emsp;&emsp;&emsp;&emsp;&emsp;	不可用 &emsp;&emsp;&emsp;&emsp;&emsp;	不可用
+ 
+ 
+ 异常：是指当阻塞队列满时候，再往队列里插入元素，会抛出IllegalStateException("Queue full")异常。当队列为空时，从队列里获取元素时会抛出NoSuchElementException异常 。
+ 
+ 返回特殊值：插入方法会返回是否成功，成功则返回true。移除方法，则是从队列里拿出一个元素，如果没有则返回null
+ 
+ 一直阻塞：当阻塞队列满时，如果生产者线程往队列里put元素，队列会一直阻塞生产者线程，直到拿到数据，或者响应中断退出。当队列空时，消费者线程试图从队列里take元素，队列也会阻塞消费者线程，直到队列可用。
+ 
+ 超时退出：当阻塞队列满时，队列会阻塞生产者线程一段时间，如果超过一定的时间，生产者线程就会退出。
+ 
+ 
+ ### 线程池
+ 
+ 1.为什么使用线程池
+ 
+ （1）降低系统资源消耗，通过重用已存在的线程，降低线程创建和销毁造成的消耗；
+ 
+ （2）提高系统响应速度，当有任务到达时，通过复用已存在的线程，无需等待新线程的创建便能立即执行；
+ 
+ （3）方便线程并发数的管控。因为线程若是无限制的创建，可能会导致内存占用过多而产生OOM，并且会造成cpu过度切换（cpu切换线程是有时间成本的（需要保持当前执行线程的现场，并恢复要执行线程的现场））。
+ 
+ （4）提供更强大的功能，延时定时线程池。
+ 
+ 2.使用
+ 
+ Java中的线程池是通过Executor框架实现的,该框架中用到了Executor,Executors,ExecutorService,ThreadPoolExecutor这几个类.
+ 
+ Executor可以类比集合类当中的Collection接口
+ 
+ Executors可以类比集合相关的Collections
+ 
+ ExecutorService可以类比集合相关的List集合
+ 
+ ThreadPoolExecutor可以类比ArrayList（具体实现类，这里只是举例子）
+ 
+ Executors工具类当中提供了JDK已经写好的几种线程池：
+ 
+ Executors.newFixedThreadPool
+ 主要特点如下:
+ 1.创建一个定长线程池,可控制线程的最大并发数,超出的线程会在队列中等待.
+ 2.newFixedThreadPool创建的线程池corePoolSize和MaxmumPoolSize是 相等的,它使用的的LinkedBlockingQueue
+ 
+ Executors.newSingleThreadExecutor
+主要特点如下:
+1.创建一个单线程化的线程池,它只会用唯一的工作线程来执行任务,保证所有任务都按照指定顺序执行.
+2.newSingleThreadExecutor将corePoolSize和MaxmumPoolSize都设置为1,它使用的的LinkedBlockingQueue
+
+ Executors.newCachedThreadPool
+ 主要特点如下:
+1.创建一个可缓存线程池,如果线程池长度超过处理需要,可灵活回收空闲线程,若无可回收,则创建新线程.
+2.newCachedThreadPool将corePoolSize设置为0MaxmumPoolSize设置为Integer.MAX_VALUE,它使用的是SynchronousQUeue,也就是说来了任务就创建线程运行,如果线程空闲超过60秒,就销毁线程
+
+
+阿里Java开发手册中明确规定
+
+【强制】线程池不允许使用Executors去创建，而是通过ThreadPoolExecutor的方式，
+这样的处理方式让写的同学更加明确线程池的运行规则，规避资源耗尽的风险。
+
+说明：Executors各个方法的弊端：
+
+1）newFixedThreadPool和newSingleThreadExecutor:
+  主要问题是堆积的请求处理队列可能会耗费非常大的内存，甚至OOM。
+
+2）newCachedThreadPool和newScheduledThreadPool:
+  主要问题是线程数最大数是Integer.MAX_VALUE，可能会创建数量非常多的线程，甚至OOM。
+
+所以我们来讲解一下如何使用ThreadPoolExecutor来进行创建线程池(通过讲解构造函数想关参数)
+
+public ThreadPoolExecutor
+
+(int corePoolSize, 线程池中的常驻核心线程数
+
+ int maximumPoolSize, 线程池能够容纳同时执行的最大线程数,此值大于等于1
+ 
+ long keepAliveTime, 多余的空闲线程存活时间,当空间时间达到keepAliveTime值时,多余的线程会被销毁直到只剩下corePoolSize个线程为止
+ 
+ TimeUnit unit, keepAliveTime的单位
+ 
+ BlockingQueue<Runnable> workQueue, 任务队列,被提交但尚未被执行的任务.
+ 
+ ThreadFactory threadFactory, 表示生成线程池中工作线程的线程工厂,用户创建新线程,一般用默认即可
+ 
+ RejectedExecutionHandler handler 拒绝策略,表示当线程队列满了并且工作线程大于等于线程池的最大显示 数(maxnumPoolSize)时如何来拒绝.
+ 
+ )
+ 
+ 我们在这里使用一个银行来比喻这个线程池
+ 
+ 银行会有常驻窗口，一般业务都会直接来这个窗口办理业务 (通过设置corePoolSize线程数来控制常开几个窗口)
+ 
+ 银行除了常驻窗口外，还会有候客区，可以允许客户等待办理业务 (通过设置BlockingQueue<Runnable>阻塞队列大小来控制)
+ 
+ 当常驻窗口一直有人进行办理业务，这个时候候客区人也满了，这个时候银行就决定额外开启业务窗口进行办理业务（通过设置maximumPoolSize来设置可以额外最大开启几个窗口）
+ （举例子：maximumPoolSize是10 ；corePoolSize是5，那么可以额外开启的线程数是5）（堵塞队列最大是10,5个常驻线程，最大线程是20，这个时候再有一个任务进来，那么就创建11个线程进行执行任务）
+ 
+ 当常驻窗口跟额外加的窗口都已经爆满，候客区也爆满，这个时候就会执行RejectedExecutionHandler 拒绝策略，
+ 
+ 拒绝策略有四种：
+ 
+ AbortPolicy：直接抛出拒绝异常（继承自RuntimeException），会中断调用者的处理过程，所以除非有明确需求，一般不推荐
+ 
+ CallerRunsPolicy:在调用者线程中（也就是说谁把这个任务甩来的），运行当前被丢弃的任务。只会用调用者所在线程来运行任务，也就是说任务不会进入线程池。如果线程池已经被关闭，则直接丢弃该任务。
+ 
+ DiscardOledestPolicy:丢弃队列中最老的，然后再次尝试提交新任务。
+ 
+ DiscardPolicy:默默丢弃无法加载的任务。
+ 
+ 线程池工作原理：
+ 
+ 线程池就算是没有任务也是会创建corePoolSize数目的线程
+ 
+ 一个任务首先到线程池，
+ 
+ 如果当前正在处理的任务<corePoolSize，那么就直接让线程执行相关任务，
+ 
+ 如果当前正在处理的任务>=corePoolSize，那么就直接将任务放置到堵塞队列，
+ 
+ 当堵塞队列满了，就额外增加线程
+ 
+ (举例子：堵塞队列最大是10,5个常驻线程，最大线程是20，这个时候再有一个任务进来，那么就创建11个线程进行执行任务，如果额外的线程已经满了，常驻窗口也满了，这个时候再来任务就放到阻塞队列，如果都满了，就执行拒绝策略)
+ 
+ 
+ 
+ 
+
+
+
+
+ 
+ 
