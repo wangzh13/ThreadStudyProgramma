@@ -1,7 +1,7 @@
 package thread.juctool;
 
 /**
- * @Description  ：ThreadLocal将某些共享变量变更为线程私有变量，这样来实现线程安全（比较霸道，把原本共享资源变成自己私有的）
+ * @Description  ：复制共享变量的值(引用类型存值，基本类型存值)存入ThreadLocal，作为ThreadLocal所属线程自己的本地变量，修改值的话通过set方法进行操作，这个本地变量是自己的，别人不可访问
  * @author       : 王作虎
  */
 public class ThreadLocalDemo {
@@ -14,11 +14,14 @@ public class ThreadLocalDemo {
 
         new Thread(()->{
             threadLocal.set(name);
+            threadLocal.set(name = "ss");
+            name = "ss";
         }).start();
 
         new Thread(()->{
             threadLocal.get();
             System.out.println(threadLocal.get());
+            System.out.println(name);
         }).start();
     }
 
