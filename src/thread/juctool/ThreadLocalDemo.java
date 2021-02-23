@@ -15,13 +15,12 @@ public class ThreadLocalDemo {
         new Thread(()->{
             threadLocal.set(name);
             threadLocal.set(name = "ss");
-            name = "ss";
+            System.out.println(threadLocal.get());
         }).start();
 
         new Thread(()->{
-            threadLocal.get();
+            threadLocal.set("name");
             System.out.println(threadLocal.get());
-            System.out.println(name);
         }).start();
     }
 
